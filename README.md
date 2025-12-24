@@ -1,6 +1,6 @@
-# Luna Gateway
+# Luna
 
-API Gateway built with **.NET 8** and **YARP**.
+API Gateway built with **.NET 10** and **YARP**.
 
 ## Responsibilities
 - Validate **external (user) JWT**
