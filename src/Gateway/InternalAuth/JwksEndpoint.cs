@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Builder;
 using Microsoft.IdentityModel.Tokens;
 using System.Text.Json;
 
@@ -10,15 +9,13 @@ public static class JwksEndpoint
     {
         app.MapGet("/.well-known/internal-jwks.json", (InternalTokenIssuer issuer) =>
         {
-            var key = issuer.GetPublicSigningKey();
-            var jwk = JsonWebKeyConverter.ConvertFromSecurityKey(key);
-            jwk.Alg = SecurityAlgorithms.RsaSha256;
-
-            var payload = new
-            {
-                keys = new object[]
+            var keys = issuer.GetAllPublicKeys()
+                .Select(k =>
                 {
-                    new
+                    var jwk = JsonWebKeyConverter.ConvertFromSecurityKey(k);
+                    jwk.Alg = SecurityAlgorithms.RsaSha256;
+
+                    return new
                     {
                         kty = jwk.Kty,
                         use = "sig",
@@ -26,11 +23,11 @@ public static class JwksEndpoint
                         kid = jwk.Kid,
                         n = jwk.N,
                         e = jwk.E
-                    }
-                }
-            };
+                    };
+                })
+                .ToArray();
 
-            return Results.Json(payload, new JsonSerializerOptions { WriteIndented = true });
+            return Results.Json(new { keys }, new JsonSerializerOptions { WriteIndented = true });
         });
     }
 }

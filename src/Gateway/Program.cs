@@ -40,6 +40,9 @@ builder.Services
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
     .AddTransforms<YarpInternalAuthTransformProvider>();
 
+builder.Services.AddSingleton<IGatewayScopeResolver, ConfigGatewayScopeResolver>();
+
+
 var app = builder.Build();
 
 app.MapInternalJwks();

@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Yarp.ReverseProxy.Transforms;
 using Yarp.ReverseProxy.Transforms.Builder;
 
@@ -15,33 +14,38 @@ public sealed class YarpInternalAuthTransformProvider : ITransformProvider
         if (string.IsNullOrWhiteSpace(audience))
             return;
 
-        var scopes = Array.Empty<string>();
-        if (context.Route.Metadata.TryGetValue("InternalScopes", out var scopesObj))
-        {
-            scopes = (scopesObj?.ToString() ?? "")
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        }
+        var routeId = context.Route.RouteId;
 
         context.AddRequestTransform(transformContext =>
         {
             var http = transformContext.HttpContext;
 
+            // must be authenticated (user JWT validated at gateway)
             if (!(http.User?.Identity?.IsAuthenticated ?? false))
             {
                 transformContext.ProxyRequest.Headers.Remove("Authorization");
+                http.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return ValueTask.CompletedTask;
+            }
+
+            var scopeResolver = http.RequestServices.GetRequiredService<IGatewayScopeResolver>();
+            var scopes = scopeResolver.ResolveScopes(routeId, http.Request.Method);
+
+            // deny-by-default if no mapping exists
+            if (scopes.Length == 0)
+            {
+                transformContext.ProxyRequest.Headers.Remove("Authorization");
+                http.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return ValueTask.CompletedTask;
             }
 
             var issuer = http.RequestServices.GetRequiredService<InternalTokenIssuer>();
-
-            // NOTE: later you can compute scopes dynamically per user/route/action.
             var internalJwt = issuer.MintForService(http.User, audience!, scopes, actorService: "api-gateway");
 
-            // Replace external Authorization with internal one
+            // replace external token with internal token
             transformContext.ProxyRequest.Headers.Remove("Authorization");
             transformContext.ProxyRequest.Headers.Add("Authorization", $"Bearer {internalJwt}");
 
-            // Optional correlation
             transformContext.ProxyRequest.Headers.Remove("X-Trace-Id");
             transformContext.ProxyRequest.Headers.Add("X-Trace-Id", http.TraceIdentifier);
 

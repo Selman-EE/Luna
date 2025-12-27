@@ -8,17 +8,32 @@ namespace Gateway.InternalAuth;
 public sealed class InternalTokenIssuer
 {
     private readonly InternalTokenOptions _opt;
-    private readonly RsaSecurityKey _signingKey;
-    private readonly SigningCredentials _creds;
 
-    public InternalTokenIssuer(IOptionsMonitor<InternalTokenOptions> opt)
+    private readonly Dictionary<string, SigningCredentials> _signingCredsByKid = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, RsaSecurityKey> _publicKeysByKid = new(StringComparer.Ordinal);
+
+    public InternalTokenIssuer(IOptions<InternalTokenOptions> opt)
     {
-        _opt = opt.CurrentValue;
+        _opt = opt.Value;
 
-        var rsa = PemKeyLoader.LoadRsaPrivateKeyFromPem(_opt.PrivateKeyPemPath);
-        _signingKey = new RsaSecurityKey(rsa) { KeyId = _opt.KeyId };
+        if (_opt.Keys.Count == 0)
+            throw new InvalidOperationException("InternalTokens.Keys must contain at least one key.");
 
-        _creds = new SigningCredentials(_signingKey, SecurityAlgorithms.RsaSha256);
+        foreach (var k in _opt.Keys)
+        {
+            if (string.IsNullOrWhiteSpace(k.KeyId))
+                throw new InvalidOperationException("InternalTokens.Keys[].KeyId is required.");
+
+            var rsaPriv = PemKeyLoader.LoadRsaPrivateKeyFromPem(k.PrivateKeyPemPath);
+            var signingKey = new RsaSecurityKey(rsaPriv) { KeyId = k.KeyId };
+            _signingCredsByKid[k.KeyId] = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
+
+            var rsaPub = PemKeyLoader.LoadRsaPublicKeyFromPem(k.PublicKeyPemPath);
+            _publicKeysByKid[k.KeyId] = new RsaSecurityKey(rsaPub) { KeyId = k.KeyId };
+        }
+
+        if (!_signingCredsByKid.ContainsKey(_opt.ActiveKeyId))
+            throw new InvalidOperationException($"ActiveKeyId '{_opt.ActiveKeyId}' not found in InternalTokens.Keys.");
     }
 
     public string MintForService(
@@ -42,8 +57,9 @@ public sealed class InternalTokenIssuer
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
             new(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
-        
-        claims.AddRange(scopes.Select(scp => new Claim("scp", scp)));
+
+        foreach (var scp in scopes)
+            claims.Add(new("scp", scp));
 
         var token = new JwtSecurityToken(
             issuer: _opt.Issuer,
@@ -51,18 +67,12 @@ public sealed class InternalTokenIssuer
             claims: claims,
             notBefore: now.UtcDateTime.AddSeconds(-5),
             expires: expires.UtcDateTime,
-            signingCredentials: _creds
+            signingCredentials: _signingCredsByKid[_opt.ActiveKeyId]
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public RsaSecurityKey GetPublicSigningKey()
-    {
-        var rsaPublic = PemKeyLoader.LoadRsaPublicKeyFromPem(_opt.PublicKeyPemPath);
-        return new RsaSecurityKey(rsaPublic) { KeyId = _opt.KeyId };
-    }
-
-    public string Issuer => _opt.Issuer;
-    public string KeyId => _opt.KeyId;
+    public IReadOnlyCollection<RsaSecurityKey> GetAllPublicKeys()
+        => _publicKeysByKid.Values.ToArray();
 }

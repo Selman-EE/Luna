@@ -3,8 +3,18 @@ namespace Gateway.InternalAuth;
 public sealed class InternalTokenOptions
 {
     public string Issuer { get; init; } = "company-gateway";
-    public string KeyId { get; init; } = "gw-1";
     public int TtlSeconds { get; init; } = 120;
-    public string PrivateKeyPemPath { get; init; } = "keys/internal-signing-private.pem";
-    public string PublicKeyPemPath { get; init; } = "keys/internal-signing-public.pem";
+
+    // which key signs new tokens
+    public string ActiveKeyId { get; init; } = "gw-2025-01";
+
+    public List<InternalSigningKey> Keys { get; init; } = new();
 }
+
+public sealed class InternalSigningKey
+{
+    public string KeyId { get; init; } = "";
+    public string PrivateKeyPemPath { get; init; } = "";
+    public string PublicKeyPemPath { get; init; } = "";
+}
+
