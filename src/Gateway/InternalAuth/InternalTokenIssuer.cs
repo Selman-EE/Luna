@@ -1,8 +1,3 @@
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-
 namespace Gateway.InternalAuth;
 
 public sealed class InternalTokenIssuer
@@ -33,7 +28,8 @@ public sealed class InternalTokenIssuer
         }
 
         if (!_signingCredsByKid.ContainsKey(_opt.ActiveKeyId))
-            throw new InvalidOperationException($"ActiveKeyId '{_opt.ActiveKeyId}' not found in InternalTokens.Keys.");
+            throw new InvalidOperationException(
+                $"{nameof(_opt.ActiveKeyId)} '{_opt.ActiveKeyId}' not found in InternalTokens.Keys.");
     }
 
     public string MintForService(
@@ -59,7 +55,7 @@ public sealed class InternalTokenIssuer
         };
 
         foreach (var scp in scopes)
-            claims.Add(new("scp", scp));
+            claims.Add(new Claim("scp", scp));
 
         var token = new JwtSecurityToken(
             issuer: _opt.Issuer,

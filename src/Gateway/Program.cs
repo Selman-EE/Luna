@@ -1,53 +1,36 @@
-using Gateway.InternalAuth;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddCarter();
+
 // Internal token issuer
-builder.Services.Configure<InternalTokenOptions>(builder.Configuration.GetSection("InternalTokens"));
+builder.Services.Configure<InternalTokenOptions>(builder.Configuration.GetSection(InternalTokenOptions.ConfigName));
 builder.Services.AddSingleton<InternalTokenIssuer>();
-
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        var ext = builder.Configuration.GetSection("ExternalAuth");
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = ext["Issuer"],
-            ValidateAudience = true,
-            ValidAudience = ext["Audience"],
-            ValidateIssuerSigningKey = true,
-
-            // DEV ONLY (symmetric). Replace with your real signing validation.
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(ext["SigningKey"] ?? "dev-dev")),
-
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(10)
-        };
-    });
-
+builder.Services.AddJwtBearerAuth(builder.Configuration);
 builder.Services.AddAuthorization();
 
 // YARP + internal auth header transform
 builder.Services
     .AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .LoadFromConfig(builder.Configuration.GetSection(YarpInternalAuthTransformProvider.ConfigName))
     .AddTransforms<YarpInternalAuthTransformProvider>();
 
 builder.Services.AddSingleton<IGatewayScopeResolver, ConfigGatewayScopeResolver>();
 
+builder.Services.AddGatewayScopesFusionCacheWithRedis(builder.Configuration);
+// Permission store lives in Gateway (DB later)
+builder.Services.AddSingleton<IInternalPermissionStore, ConfigPermissionStore>();
+builder.Services.AddGatewayScopeResolution(opt =>
+{
+    opt.CacheKeyPrefix = "luna:internalscopes:";
+    opt.CacheTtl = TimeSpan.FromSeconds(30);
+});
 
 var app = builder.Build();
 
 app.MapInternalJwks();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapCarter();
 
 // Require auth for all proxied routes (you can allow-list some paths if needed)
 app.MapReverseProxy(proxyPipeline =>
@@ -62,12 +45,6 @@ app.MapReverseProxy(proxyPipeline =>
 
         await next();
     });
-});
-
-app.MapGet("/health", () => Results.Ok(new { ok = true }));
-app.MapGet("/{**any}", (HttpRequest req) =>
-{
-    return Results.Ok(req.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()));
 });
 
 app.Run();

@@ -2,6 +2,7 @@ namespace Gateway.InternalAuth;
 
 public sealed class InternalTokenOptions
 {
+    public const string ConfigName = "InternalTokens";
     public string Issuer { get; init; } = "company-gateway";
     public int TtlSeconds { get; init; } = 120;
 
@@ -17,4 +18,3 @@ public sealed class InternalSigningKey
     public string PrivateKeyPemPath { get; init; } = "";
     public string PublicKeyPemPath { get; init; } = "";
 }
-
